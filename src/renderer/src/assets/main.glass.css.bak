@@ -1,0 +1,642 @@
+:root {
+  --bg: #f5f5f7;
+  --card: #fff;
+  --text: #1d1d1f;
+  --muted: #6e6e73;
+  --line: #e5e5ea;
+  --accent: #0a84ff;
+  --ok: #30a46c;
+  --warn: #e5484d;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
+  color: var(--text);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1c1c1e;
+    --card: #2c2c2e;
+    --text: #f5f5f7;
+    --muted: #98989d;
+    --line: #3a3a3c;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: var(--bg);
+}
+.app {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 24px 20px 40px;
+}
+
+.month-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.month-nav h1 {
+  font-size: 22px;
+  margin: 0;
+  text-transform: capitalize;
+}
+
+button {
+  font: inherit;
+  color: var(--text);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+button.icon {
+  border: none;
+  background: none;
+  color: var(--muted);
+  padding: 4px 8px;
+}
+
+.summary {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+.summary div {
+  background: var(--card);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+.summary span {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+}
+.summary strong {
+  font-size: 18px;
+}
+.summary .paid strong {
+  color: var(--ok);
+}
+
+table.bills {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--card);
+  border-radius: 12px;
+  overflow: hidden;
+}
+table.bills th {
+  text-align: left;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+}
+table.bills td {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+}
+table.bills tr:last-child td {
+  border-bottom: none;
+}
+.right {
+  text-align: right;
+}
+.month-cell {
+  text-transform: capitalize;
+  color: var(--muted);
+}
+
+input.amount-input {
+  font: inherit;
+  color: var(--text);
+  background: transparent;
+  text-align: right;
+  width: 110px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 5px 8px;
+  font-variant-numeric: tabular-nums;
+}
+.error {
+  color: var(--warn);
+  margin-bottom: 12px;
+}
+
+h2 {
+  font-size: 16px;
+  margin: 28px 0 10px;
+}
+table.bills tfoot td {
+  font-weight: 600;
+  border-top: 1px solid var(--line);
+  border-bottom: none;
+}
+td.empty {
+  text-align: center;
+  color: var(--muted);
+}
+input.name-input {
+  font: inherit;
+  color: var(--text);
+  background: transparent;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 5px 8px;
+}
+button.add-extra {
+  margin-top: 12px;
+}
+
+.amount-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+button.confirm {
+  padding: 4px 9px;
+  color: #fff;
+  background: #0a84ff;
+  border-color: #0a84ff;
+}
+
+/* ---- Liquid glass ---- */
+:root {
+  --card: rgba(255, 255, 255, 0.28);
+  --glass-border: rgba(255, 255, 255, 0.55);
+  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+  --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --card: rgba(255, 255, 255, 0.07);
+    --glass-border: rgba(255, 255, 255, 0.14);
+    --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  }
+}
+
+/* Colorful backdrop: the cards blur this, which is what makes them look like glass */
+body {
+  background: #e9edf7;
+}
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(40% 35% at 15% 15%, rgba(10, 132, 255, 0.55), transparent 70%),
+    radial-gradient(35% 35% at 85% 20%, rgba(255, 105, 180, 0.45), transparent 70%),
+    radial-gradient(40% 40% at 70% 85%, rgba(48, 209, 160, 0.45), transparent 70%),
+    radial-gradient(35% 35% at 10% 85%, rgba(255, 159, 10, 0.4), transparent 70%);
+}
+@media (prefers-color-scheme: dark) {
+  body {
+    background: #14141f;
+  }
+  body::before {
+    background:
+      radial-gradient(40% 35% at 15% 15%, rgba(10, 132, 255, 0.5), transparent 70%),
+      radial-gradient(35% 35% at 85% 20%, rgba(191, 90, 242, 0.45), transparent 70%),
+      radial-gradient(40% 40% at 70% 85%, rgba(48, 209, 160, 0.35), transparent 70%),
+      radial-gradient(35% 35% at 10% 85%, rgba(255, 69, 58, 0.35), transparent 70%);
+  }
+}
+
+.titlebar {
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: 32px;
+  -webkit-app-region: drag;
+}
+.app {
+  padding-top: 44px;
+}
+
+.summary div,
+table.bills,
+button:not(.primary):not(.confirm):not(.icon):not(.menu-item):not(.status) {
+  background: var(--card);
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  backdrop-filter: blur(28px) saturate(190%);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow), var(--glass-highlight);
+}
+.summary div,
+table.bills {
+  border-radius: 18px;
+}
+table.bills {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+table.bills th,
+table.bills td {
+  border-bottom-color: var(--glass-border);
+}
+input.amount-input,
+input.name-input {
+  background: rgba(255, 255, 255, 0.25);
+  border-color: var(--glass-border);
+}
+@media (prefers-color-scheme: dark) {
+  input.amount-input,
+  input.name-input {
+    background: rgba(255, 255, 255, 0.08);
+  }
+}
+
+/* ---- Animated popovers ---- */
+button.pop-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  white-space: nowrap;
+  font: inherit;
+  cursor: pointer;
+  transition:
+    background-color 0.35s ease,
+    border-color 0.35s ease,
+    transform 0.15s ease;
+}
+button.pop-trigger:active {
+  transform: scale(0.97);
+}
+button.pop-trigger.status {
+  font-weight: 500;
+  color: #fff;
+  border-color: transparent;
+  box-shadow: var(--glass-shadow);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  min-width: 120px;
+  text-align: left;
+}
+button.pop-trigger.status.is-paid {
+  background: var(--ok);
+}
+button.pop-trigger.status.is-unpaid {
+  background: var(--warn);
+}
+button.pop-trigger.month-trigger {
+  min-width: 155px;
+  text-align: left;
+}
+.caret {
+  opacity: 0.7;
+  font-size: 11px;
+}
+
+.popover {
+  --dy: -6px;
+  position: fixed;
+  z-index: 1000;
+  padding: 6px;
+  border-radius: 16px;
+  background: var(--popover-bg);
+  border: 1px solid var(--glass-border);
+  -webkit-backdrop-filter: blur(30px) saturate(190%);
+  backdrop-filter: blur(30px) saturate(190%);
+  box-shadow: var(--glass-shadow), var(--glass-highlight);
+  transform-origin: top left;
+  animation: pop-in 0.18s cubic-bezier(0.2, 0.9, 0.3, 1.15);
+}
+.popover.up {
+  --dy: 6px;
+  transform-origin: bottom left;
+}
+.popover.closing {
+  animation: pop-out 0.14s ease forwards;
+}
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--dy)) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes pop-out {
+  to {
+    opacity: 0;
+    transform: translateY(var(--dy)) scale(0.96);
+  }
+}
+
+:root {
+  --popover-bg: rgba(255, 255, 255, 0.6);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --popover-bg: rgba(40, 40, 52, 0.6);
+  }
+}
+
+button.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  border-radius: 10px;
+  padding: 7px 12px;
+  text-align: left;
+  white-space: nowrap;
+  transition: background-color 0.12s ease;
+}
+button.menu-item:hover {
+  background: rgba(127, 127, 127, 0.22);
+}
+button.menu-item.active {
+  background: var(--accent);
+  color: #fff;
+}
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+.dot.is-paid {
+  background: var(--ok);
+}
+.dot.is-unpaid {
+  background: var(--warn);
+}
+.menu {
+  min-width: 148px;
+}
+.month-grid-wrap {
+  width: 230px;
+}
+.year-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+.year-nav .menu-item {
+  width: auto;
+}
+.month-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+}
+.month-grid .menu-item {
+  justify-content: center;
+  padding: 9px 0;
+}
+
+/* ---- Glass v2: lit from the top-left, specular edges, slowly drifting backdrop ---- */
+:root {
+  --glass-fill: linear-gradient(135deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.14));
+  --glass-edge:
+    inset 0 1.5px 0 rgba(255, 255, 255, 0.9), inset 1.5px 0 0 rgba(255, 255, 255, 0.45),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.18), inset -1px 0 0 rgba(255, 255, 255, 0.12),
+    inset 0 0 24px rgba(255, 255, 255, 0.18);
+  --glass-drop: 0 14px 44px rgba(30, 40, 110, 0.2), 0 2px 6px rgba(30, 40, 110, 0.08);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --glass-fill: linear-gradient(135deg, rgba(255, 255, 255, 0.17), rgba(255, 255, 255, 0.04));
+    --glass-edge:
+      inset 0 1.5px 0 rgba(255, 255, 255, 0.32), inset 1.5px 0 0 rgba(255, 255, 255, 0.14),
+      inset 0 -1px 0 rgba(255, 255, 255, 0.05), inset 0 0 24px rgba(255, 255, 255, 0.05);
+    --glass-drop: 0 16px 48px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.25);
+  }
+}
+
+.summary div,
+table.bills,
+.popover {
+  background: var(--glass-fill);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  -webkit-backdrop-filter: blur(22px) saturate(200%) brightness(1.05);
+  backdrop-filter: blur(22px) saturate(200%) brightness(1.05);
+  box-shadow: var(--glass-drop), var(--glass-edge);
+}
+.popover {
+  background: var(--glass-fill), var(--popover-bg);
+}
+table.bills tbody tr {
+  transition: background-color 0.2s ease;
+}
+table.bills tbody tr:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+body::before {
+  inset: -15%;
+  animation: backdrop-drift 40s ease-in-out infinite alternate;
+}
+@keyframes backdrop-drift {
+  from {
+    transform: translate(-3%, -2%) rotate(0deg) scale(1);
+  }
+  to {
+    transform: translate(3%, 2%) rotate(18deg) scale(1.1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  body::before {
+    animation: none;
+  }
+}
+
+form.add-bill {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+form.add-bill input {
+  flex: 1;
+}
+
+/* Input fields share the look of the month picker button */
+input.amount-input,
+input.name-input {
+  background: var(--card);
+  border: 1px solid var(--glass-border);
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  backdrop-filter: blur(28px) saturate(190%);
+  box-shadow: var(--glass-shadow), var(--glass-highlight);
+}
+input.amount-input:focus,
+input.name-input:focus {
+  outline: none;
+  border-color: #0a84ff;
+}
+
+table.bills th.right {
+  text-align: right;
+}
+.amount-label {
+  width: 110px; /* same as input.amount-input */
+  padding-right: 9px; /* input border + padding, so the text ends where the amount ends */
+  text-align: right;
+}
+
+/* Inner spacing between the table edge and its content */
+table.bills {
+  padding: 5px;
+}
+
+/* ---- Delete dialog ---- */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.3);
+  animation: fade-in 0.18s ease;
+}
+.modal {
+  width: 400px;
+  max-width: calc(100vw - 40px);
+  padding: 22px;
+  border-radius: 22px;
+  background: var(--glass-fill), var(--popover-bg);
+  border: 1px solid var(--glass-border);
+  -webkit-backdrop-filter: blur(30px) saturate(190%);
+  backdrop-filter: blur(30px) saturate(190%);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  animation: pop-in 0.2s cubic-bezier(0.2, 0.9, 0.3, 1.15);
+}
+.modal h3 {
+  margin: 0 0 8px;
+  font-size: 18px;
+}
+.modal p {
+  margin: 0 0 16px;
+}
+.modal small {
+  display: block;
+  margin-top: 14px;
+  color: var(--muted);
+}
+.modal-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.modal-actions button {
+  padding: 9px 14px;
+}
+button.primary.danger {
+  background: var(--warn);
+  border-color: var(--warn);
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+form.add-sub {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+form.add-sub input {
+  flex: 1;
+}
+form.add-sub input.sub-amount {
+  flex: 0 0 170px;
+}
+
+/* ---- Installments (kartica na rate) ---- */
+.stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.stepper button.icon {
+  font-size: 18px;
+  line-height: 1;
+  padding: 2px 8px;
+}
+.stepper button.icon:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.stepper-value {
+  font-variant-numeric: tabular-nums;
+}
+input.count-input {
+  width: 64px;
+  text-align: center;
+}
+.paid-off {
+  color: var(--ok);
+  font-weight: 600;
+}
+form.add-inst {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+form.add-inst input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ---- Read-only cells and per-row edit mode ---- */
+.cell-text {
+  display: inline-block;
+  padding: 6px 0;
+}
+.cell-text.muted {
+  color: var(--muted);
+  font-style: italic;
+}
+.amount-text {
+  display: inline-block;
+  width: 110px;
+  padding: 6px 9px 6px 0; /* same right edge as the number inside the input */
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+button.icon svg {
+  display: block;
+}
+
+/* Column sum sits in the bottom-right corner of each table */
+table.bills tfoot td.table-total {
+  text-align: right;
+}
+td.table-total span {
+  margin-right: 12px;
+  color: var(--muted);
+  font-weight: 400;
+}
+td.table-total strong {
+  font-variant-numeric: tabular-nums;
+}
