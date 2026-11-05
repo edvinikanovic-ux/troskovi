@@ -7,6 +7,7 @@ import {
   itemsToState,
   stateToItems
 } from '../../../shared/items'
+import { moveRows, sectionOrder, type SectionId } from '../../../shared/order'
 import type {
   BillPatch,
   BillsApi,
@@ -26,6 +27,8 @@ import {
   assertId,
   assertKey,
   assertMonth,
+  assertRowIds,
+  assertSectionOrder,
   cleanName,
   requireName
 } from '../../../shared/validate'
@@ -33,7 +36,7 @@ import {
 // The data layer used wherever there is no Electron main process: the browser (PWA) and the cloud.
 // It implements the same BillsApi and the same rules as src/main/db.ts (SQLite); keep them in step.
 // test/parity.test.ts runs one scenario against both. Where the data is actually stored is
-// decided by a Persistence: localStorage, or Firestore for sync between devices.
+// decided by a Persistence (localStorage in the browser).
 
 export type Op = { type: 'set'; item: Item } | { type: 'delete'; kind: Kind; id: string }
 
@@ -79,7 +82,24 @@ const previousMonth = (month: string): string => {
 }
 
 const clamp = (n: number, min: number, max: number): number => Math.min(Math.max(n, min), max)
-const byNumericId = (a: { id: string }, b: { id: string }): number => Number(a.id) - Number(b.id)
+
+// rows without a sortOrder (saved before rows could be dragged) sort by id, as they did before
+type Ordered = { id: string; sortOrder?: number }
+const orderOf = (row: Ordered): number => row.sortOrder ?? Number(row.id)
+const byOrder = (a: Ordered, b: Ordered): number =>
+  orderOf(a) - orderOf(b) || Number(a.id) - Number(b.id)
+const byDefOrder = (a: ItemOf<'def'>, b: ItemOf<'def'>): number =>
+  a.sortOrder - b.sortOrder || a.id.localeCompare(b.id)
+// a new row goes to the end
+const nextOrder = (rows: Ordered[]): number =>
+  rows.reduce((m, r) => Math.max(m, orderOf(r)), -1) + 1
+
+const ROW_KINDS = {
+  extras: 'extra',
+  subscriptions: 'sub',
+  installments: 'inst',
+  loans: 'loan'
+} as const
 
 export async function createDataApi(
   persistence: Persistence,
@@ -172,7 +192,7 @@ export async function createDataApi(
     async list(month: string): Promise<MonthlyBill[]> {
       assertMonth(month)
       return all('def')
-        .sort((a, b) => a.sortOrder - b.sortOrder || a.id.localeCompare(b.id))
+        .sort(byDefOrder)
         .flatMap((def) => {
           const p = get('payment', `${def.id}|${month}`)
           if (p?.hidden) return []
@@ -233,7 +253,7 @@ export async function createDataApi(
     async listSubscriptions(month: string): Promise<Subscription[]> {
       assertMonth(month)
       return all('sub')
-        .sort(byNumericId)
+        .sort(byOrder)
         .filter((s) => !get('subhidden', `${s.id}|${month}`))
         .map((s) => ({ id: Number(s.id), name: s.name, amountCents: s.amountCents }))
     },
@@ -241,7 +261,16 @@ export async function createDataApi(
     async addSubscription(name: string, amountCents: number): Promise<void> {
       assertAmount(amountCents)
       const clean = cleanName(name)
-      commit(set({ kind: 'sub', id: freshId('sub', all('sub')), name: clean, amountCents }))
+      const subs = all('sub')
+      commit(
+        set({
+          kind: 'sub',
+          id: freshId('sub', subs),
+          name: clean,
+          amountCents,
+          sortOrder: nextOrder(subs)
+        })
+      )
     },
 
     async updateSubscription(id: number, patch: SubscriptionPatch): Promise<void> {
@@ -278,7 +307,7 @@ export async function createDataApi(
       assertMonth(month)
       return all('inst')
         .filter((r) => r.startMonth <= month)
-        .sort(byNumericId)
+        .sort(byOrder)
         .map((r) => {
           const entry = latest('instmonth', r.id, month)
           const from = entry
@@ -306,15 +335,17 @@ export async function createDataApi(
       assertAmount(installmentCents)
       assertCount(totalCount, 1)
       assertCount(paidCount, 0)
+      const rows = all('inst')
       commit(
         set({
           kind: 'inst',
-          id: freshId('inst', all('inst')),
+          id: freshId('inst', rows),
           name: clean,
           installmentCents,
           totalCount,
           paidCount: clamp(paidCount, 0, totalCount),
-          startMonth
+          startMonth,
+          sortOrder: nextOrder(rows)
         })
       )
     },
@@ -362,7 +393,7 @@ export async function createDataApi(
       assertMonth(month)
       const before = previousMonth(month)
       return all('loan')
-        .sort(byNumericId)
+        .sort(byOrder)
         .flatMap((r) => {
           const loan = loanAt(r, month)
           if (!loan) return []
@@ -381,9 +412,17 @@ export async function createDataApi(
       assertAmount(debtCents)
       assertAmount(monthlyCents)
       const clean = cleanName(name)
-      const id = freshId('loan', all('loan'))
+      const rows = all('loan')
+      const id = freshId('loan', rows)
       commit(
-        set({ kind: 'loan', id, name: clean, monthlyCents, startMonth }),
+        set({
+          kind: 'loan',
+          id,
+          name: clean,
+          monthlyCents,
+          startMonth,
+          sortOrder: nextOrder(rows)
+        }),
         set({ kind: 'loananchor', id: `${id}|${startMonth}`, debtCents })
       )
     },
@@ -422,7 +461,7 @@ export async function createDataApi(
       assertMonth(month)
       return all('extra')
         .filter((x) => x.month === month)
-        .sort(byNumericId)
+        .sort(byOrder)
         .map((x) => ({
           id: Number(x.id),
           month: x.month,
@@ -433,8 +472,10 @@ export async function createDataApi(
 
     async addExtra(month: string): Promise<Extra> {
       assertMonth(month)
-      const id = freshId('extra', all('extra'))
-      commit(set({ kind: 'extra', id, month, name: '', amountCents: 0 }))
+      const rows = all('extra')
+      const id = freshId('extra', rows)
+      const sortOrder = nextOrder(rows.filter((x) => x.month === month))
+      commit(set({ kind: 'extra', id, month, name: '', amountCents: 0, sortOrder }))
       return { id: Number(id), month, name: '', amountCents: 0 }
     },
 
@@ -456,6 +497,38 @@ export async function createDataApi(
     async removeExtra(id: number): Promise<void> {
       assertId(id)
       commit(del('extra', String(id)))
+    },
+
+    // ---------- order
+    async reorderRows(list: SectionId, month: string, ids: string[]): Promise<void> {
+      assertMonth(month)
+      assertRowIds(list, ids)
+      // every row of the list, also the ones not shown in this month, so those keep their place
+      const rows: ItemOf<'def' | 'extra' | 'sub' | 'inst' | 'loan'>[] =
+        list === 'bills'
+          ? all('def').sort(byDefOrder)
+          : all(ROW_KINDS[list])
+              .filter((r) => r.kind !== 'extra' || r.month === month)
+              .sort(byOrder)
+      const byId = new Map(rows.map((r) => [r.id, r]))
+      // only rows whose place changed are written (each one is a document in the cloud)
+      const ops = moveRows(
+        rows.map((r) => r.id),
+        ids
+      ).flatMap((id, i) => {
+        const row = byId.get(id)
+        return row && row.sortOrder !== i ? [set({ ...row, sortOrder: i })] : []
+      })
+      if (ops.length > 0) commit(...ops)
+    },
+
+    async getSectionOrder(): Promise<SectionId[]> {
+      return sectionOrder(get('pref', 'sectionOrder')?.value)
+    },
+
+    async setSectionOrder(order: SectionId[]): Promise<void> {
+      assertSectionOrder(order)
+      commit(set({ kind: 'pref', id: 'sectionOrder', value: [...order] }))
     },
 
     // ---------- backup

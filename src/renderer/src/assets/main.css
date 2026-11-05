@@ -636,12 +636,13 @@ td.table-total .total-gap {
   white-space: nowrap;
 }
 
-/* Quiet example text next to a section title */
+/* Quiet example text next to a section title; on a narrow screen it moves to the next line whole */
 .h2-hint {
   margin-left: 6px;
   font-size: 12px;
   font-weight: 400;
   opacity: 0.5;
+  white-space: nowrap;
 }
 
 /* ---------- Placeholder that slides to its end on hover ---------- */
@@ -729,6 +730,62 @@ button.section-toggle:active {
   /* room for focus rings, which overflow:hidden would clip */
   padding: 4px;
   margin: -4px;
+}
+
+/* ---------- Reordering (drag handles, see useSortable.ts) ---------- */
+.section > h2 {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+button.drag-handle {
+  min-width: 22px;
+  padding: 0 4px;
+  opacity: 0.55;
+  cursor: grab;
+  touch-action: none; /* a finger on the handle drags the row instead of scrolling the page */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+button.drag-handle:hover {
+  opacity: 1;
+}
+.section > h2 button.drag-handle {
+  margin-left: -6px;
+}
+table.bills th.grip-cell,
+table.bills td.grip-cell {
+  width: 1px;
+  padding-right: 0;
+  padding-left: 8px;
+}
+.sort-active,
+.sort-active * {
+  cursor: grabbing !important;
+  -webkit-user-select: none;
+  user-select: none;
+}
+/* the sections fold at once when a drag starts, so they can be measured right away */
+.sort-active .section-body {
+  transition: none;
+}
+.sort-shifting,
+table.bills tbody tr.sort-shifting {
+  transition: transform 0.18s ease;
+}
+.sort-dragging {
+  position: relative;
+  z-index: 20;
+}
+table.bills tbody tr.sort-dragging {
+  background: var(--surface);
+  box-shadow: var(--pop-shadow);
+}
+.section.sort-dragging {
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--pop-shadow);
 }
 
 /* ---------- Backup buttons (browser build only) ---------- */
@@ -819,95 +876,102 @@ html.web .titlebar {
     margin-left: 16px;
   }
 
+  /* every card starts with the drag handle in front of the name (the first cell) */
+  table.bills tbody td.grip-cell {
+    grid-area: grip;
+    width: auto;
+    padding: 0;
+  }
+
   /* bills: name + actions, then status + month, then amount */
   table.bills-main tbody tr {
-    grid-template-columns: 1fr 1fr auto;
+    grid-template-columns: auto 1fr 1fr auto;
     grid-template-areas:
-      'name name actions'
-      'status month month'
-      'amount amount amount';
-  }
-  table.bills-main td:nth-child(1) {
-    grid-area: status;
+      'grip name name actions'
+      'status status month month'
+      'amount amount amount amount';
   }
   table.bills-main td:nth-child(2) {
+    grid-area: status;
+  }
+  table.bills-main td:nth-child(3) {
     grid-area: name;
     font-weight: 600;
   }
-  table.bills-main td:nth-child(3) {
+  table.bills-main td:nth-child(4) {
     grid-area: month;
   }
-  table.bills-main td:nth-child(4) {
+  table.bills-main td:nth-child(5) {
     grid-area: amount;
   }
-  table.bills-main td:nth-child(5) {
+  table.bills-main td:nth-child(6) {
     grid-area: actions;
   }
 
   /* extra expenses and subscriptions: name + actions, then amount */
   table.bills-extras tbody tr,
   table.bills-subs tbody tr {
-    grid-template-columns: 1fr auto;
+    grid-template-columns: auto 1fr auto;
     grid-template-areas:
-      'name actions'
-      'amount amount';
-  }
-  table.bills-extras td:nth-child(1),
-  table.bills-subs td:nth-child(1) {
-    grid-area: name;
+      'grip name actions'
+      'amount amount amount';
   }
   table.bills-extras td:nth-child(2),
   table.bills-subs td:nth-child(2) {
-    grid-area: amount;
+    grid-area: name;
   }
   table.bills-extras td:nth-child(3),
   table.bills-subs td:nth-child(3) {
+    grid-area: amount;
+  }
+  table.bills-extras td:nth-child(4),
+  table.bills-subs td:nth-child(4) {
     grid-area: actions;
   }
 
   /* installments: name + actions, then rate, paid count, remaining */
   table.bills-installments tbody tr {
-    grid-template-columns: 1fr auto;
+    grid-template-columns: auto 1fr auto;
     grid-template-areas:
-      'name actions'
-      'rate rate'
-      'paid paid'
-      'remaining remaining';
-  }
-  table.bills-installments td:nth-child(1) {
-    grid-area: name;
+      'grip name actions'
+      'rate rate rate'
+      'paid paid paid'
+      'remaining remaining remaining';
   }
   table.bills-installments td:nth-child(2) {
-    grid-area: rate;
+    grid-area: name;
   }
   table.bills-installments td:nth-child(3) {
-    grid-area: paid;
+    grid-area: rate;
   }
   table.bills-installments td:nth-child(4) {
-    grid-area: remaining;
+    grid-area: paid;
   }
   table.bills-installments td:nth-child(5) {
+    grid-area: remaining;
+  }
+  table.bills-installments td:nth-child(6) {
     grid-area: actions;
   }
 
   /* loans: name + actions, then debt and rate */
   table.bills-loans tbody tr {
-    grid-template-columns: 1fr auto;
+    grid-template-columns: auto 1fr auto;
     grid-template-areas:
-      'name actions'
-      'debt debt'
-      'rate rate';
-  }
-  table.bills-loans td:nth-child(1) {
-    grid-area: name;
+      'grip name actions'
+      'debt debt debt'
+      'rate rate rate';
   }
   table.bills-loans td:nth-child(2) {
-    grid-area: debt;
+    grid-area: name;
   }
   table.bills-loans td:nth-child(3) {
-    grid-area: rate;
+    grid-area: debt;
   }
   table.bills-loans td:nth-child(4) {
+    grid-area: rate;
+  }
+  table.bills-loans td:nth-child(5) {
     grid-area: actions;
   }
 
@@ -951,84 +1015,11 @@ html.web .titlebar {
   }
 }
 
-/* ---------- Account badge, login screen ---------- */
-.account {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin-right: auto; /* pushes the switches to the right */
-  min-width: 0;
-}
-.account-email {
-  max-width: 220px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12px;
-  color: var(--muted);
-}
-.account button {
-  padding: 3px 10px;
-  font-size: 12px;
-}
+/* ---------- Loading screen ---------- */
 .splash {
   display: flex;
   align-items: center;
   justify-content: center;
   min-height: 100vh;
   color: var(--muted);
-}
-.login {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 100vh;
-  padding: 24px;
-}
-.login-card {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  width: 100%;
-  max-width: 380px;
-  padding: 28px;
-  border: 1px solid var(--line);
-  border-radius: 20px;
-  background: var(--surface);
-}
-.login-card h1 {
-  font-size: 24px;
-}
-.login-intro {
-  margin: 0 0 4px;
-  color: var(--muted);
-}
-.login-card .field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 12px;
-  color: var(--muted);
-}
-.login-card button {
-  padding: 10px 16px;
-}
-button.link {
-  border: none;
-  background: transparent;
-  color: var(--muted);
-  font-size: 12px;
-  text-decoration: underline;
-}
-.login-message {
-  font-size: 13px;
-  color: var(--ok-ink);
-}
-.login-message.bad {
-  color: var(--bad);
-}
-@media (max-width: 640px) {
-  .account-email {
-    max-width: 120px;
-  }
 }

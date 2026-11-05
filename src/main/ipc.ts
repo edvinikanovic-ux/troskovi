@@ -5,9 +5,12 @@ import {
   assertId,
   assertKey,
   assertMonth,
+  assertRowIds,
+  assertSectionOrder,
   cleanName,
   requireName
 } from '../shared/validate'
+import type { SectionId } from '../shared/order'
 import {
   addBillDef,
   addExtra,
@@ -22,12 +25,15 @@ import {
   listMonth,
   listSubscriptions,
   exportState,
+  getSectionOrder,
   removeBillDef,
   renameBillDef,
   removeExtra,
   removeInstallment,
   removeLoan,
   removeSubscription,
+  reorderRows,
+  setSectionOrder,
   updateExtra,
   updateInstallment,
   updateLoan,
@@ -167,5 +173,15 @@ export function registerIpc(): void {
   ipcMain.handle('extras:remove', (_, id: number) => {
     assertId(id)
     removeExtra(id)
+  })
+  ipcMain.handle('rows:reorder', (_, list: SectionId, month: string, ids: string[]) => {
+    assertMonth(month)
+    assertRowIds(list, ids)
+    reorderRows(list, month, ids)
+  })
+  ipcMain.handle('sections:get', () => getSectionOrder())
+  ipcMain.handle('sections:set', (_, order: SectionId[]) => {
+    assertSectionOrder(order)
+    setSectionOrder(order)
   })
 }

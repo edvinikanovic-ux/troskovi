@@ -37,7 +37,10 @@ const api: BillsApi = {
   listExtras: (month) => ipcRenderer.invoke('extras:list', month),
   addExtra: (month) => ipcRenderer.invoke('extras:add', month),
   updateExtra: (id, patch) => ipcRenderer.invoke('extras:update', id, patch),
-  removeExtra: (id) => ipcRenderer.invoke('extras:remove', id)
+  removeExtra: (id) => ipcRenderer.invoke('extras:remove', id),
+  reorderRows: (list, month, ids) => ipcRenderer.invoke('rows:reorder', list, month, ids),
+  getSectionOrder: () => ipcRenderer.invoke('sections:get'),
+  setSectionOrder: (order) => ipcRenderer.invoke('sections:set', order)
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

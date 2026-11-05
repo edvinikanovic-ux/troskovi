@@ -1,13 +1,16 @@
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import { monthLabel } from './months'
+import { useSortable } from './useSortable'
 import { useI18n } from './i18n'
 import { LangSwitch } from './components/LangSwitch'
 import { Section } from './components/Section'
-import { AccountBadge } from './components/AccountBadge'
 import { ThemeSwitch } from './components/ThemeSwitch'
 import { MonthPicker } from './components/MonthPicker'
 import { DeleteDialog } from './components/DeleteDialog'
 import { StatusSelect } from './components/StatusSelect'
+import { DragHandle } from './components/DragHandle'
+import { SECTION_IDS, type SectionId } from '../../shared/order'
 import type {
   BillPatch,
   Extra,
@@ -315,6 +318,9 @@ function App(): React.JSX.Element {
   const [subAmount, setSubAmount] = useState('')
   const [deleting, setDeleting] = useState<MonthlyBill | null>(null)
   const [deletingSub, setDeletingSub] = useState<Subscription | null>(null)
+  const [sectionOrder, setSectionOrder] = useState<SectionId[]>(SECTION_IDS)
+  // while a section is dragged all of them fold, so they are short and easy to move past each other
+  const [sortingSections, setSortingSections] = useState(false)
   const [reload, setReload] = useState(0)
 
   // data changed on another device / a sync problem (only the cloud data layer reports these)
@@ -351,10 +357,12 @@ function App(): React.JSX.Element {
       window.api.listExtras(month),
       window.api.listSubscriptions(month),
       window.api.listInstallments(month),
-      window.api.listLoans(month)
+      window.api.listLoans(month),
+      window.api.getSectionOrder()
     ])
-      .then(([rows, extraRows, subRows, instRows, loanRows]) => {
+      .then(([rows, extraRows, subRows, instRows, loanRows, order]) => {
         if (stale) return
+        setSectionOrder(order)
         setBills(rows)
         setExtras(extraRows)
         setSubs(subRows)
@@ -394,6 +402,51 @@ function App(): React.JSX.Element {
       setError((e as Error).message)
     }
   }
+
+  // shows the new order at once, then saves it
+  const reorder =
+    <T,>(list: SectionId, rows: T[], setRows: (rows: T[]) => void, idOf: (row: T) => string) =>
+    (ids: string[]): void => {
+      const byId = new Map(rows.map((r) => [idOf(r), r]))
+      setRows(ids.flatMap((id) => byId.get(id) ?? []))
+      void run(() => window.api.reorderRows(list, month, ids))
+    }
+  const billKey = (b: MonthlyBill): string => b.key
+  const rowId = (x: { id: number }): string => String(x.id)
+  const billSort = useSortable(bills.map(billKey), reorder('bills', bills, setBills, billKey))
+  const extraSort = useSortable(extras.map(rowId), reorder('extras', extras, setExtras, rowId))
+  const subSort = useSortable(subs.map(rowId), reorder('subscriptions', subs, setSubs, rowId))
+  const instSort = useSortable(
+    installments.map(rowId),
+    reorder('installments', installments, setInstallments, rowId)
+  )
+  const loanSort = useSortable(loans.map(rowId), reorder('loans', loans, setLoans, rowId))
+  const sectionSort = useSortable(
+    sectionOrder,
+    (ids) => {
+      const order = ids as SectionId[]
+      setSectionOrder(order)
+      void run(() => window.api.setSectionOrder(order))
+    },
+    {
+      // fold before the sections are measured
+      onStart: () => flushSync(() => setSortingSections(true)),
+      onEnd: () => setSortingSections(false)
+    }
+  )
+  const sectionProps = (
+    id: SectionId
+  ): {
+    id: SectionId
+    handle: React.JSX.Element
+    sortRef: (el: HTMLElement | null) => void
+    folded: boolean
+  } => ({
+    id,
+    handle: <DragHandle label={t('act.moveSection')} {...sectionSort.handleProps(id)} />,
+    sortRef: sectionSort.itemRef(id),
+    folded: sortingSections
+  })
 
   const updateExtra = (id: number, patch: ExtraPatch): Promise<void> =>
     run(() => window.api.updateExtra(id, patch))
@@ -526,30 +579,13 @@ function App(): React.JSX.Element {
 
   const total = bills.reduce((sum, b) => sum + b.amountCents, 0)
 
-  return (
-    <div className="app">
-      <div className="titlebar" />
-      <div className="topbar">
-        <AccountBadge />
-        <ThemeSwitch />
-        <LangSwitch lang={lang} onChange={setLang} />
-      </div>
-      <div className="month-nav">
-        <button onClick={() => setMonth(shiftMonth(month, -1))}>‹</button>
-        <h1>{monthLabel(month, lang)}</h1>
-        <button onClick={() => setMonth(shiftMonth(month, 1))}>›</button>
-      </div>
-
-      {error && (
-        <div className="error" role="alert" onClick={() => setError(null)}>
-          {error}
-        </div>
-      )}
-
-      <Section id="bills" title={t('section.bills')}>
+  const sectionViews: Record<SectionId, React.JSX.Element> = {
+    bills: (
+      <Section {...sectionProps('bills')} title={t('section.bills')}>
         <table className="bills bills-main">
           <thead>
             <tr>
+              <th className="grip-cell"></th>
               <th>{t('col.status')}</th>
               <th>{t('col.bill')}</th>
               <th>{t('col.forMonth')}</th>
@@ -573,7 +609,7 @@ function App(): React.JSX.Element {
           <tbody>
             {bills.length === 0 && (
               <tr>
-                <td colSpan={5} className="empty">
+                <td colSpan={6} className="empty">
                   {t('empty.bills')}
                 </td>
               </tr>
@@ -582,7 +618,10 @@ function App(): React.JSX.Element {
               const id = `bill:${b.key}`
               const ed = isEditing(id, b.name)
               return (
-                <tr key={b.key}>
+                <tr key={b.key} ref={billSort.itemRef(b.key)}>
+                  <td className="grip-cell">
+                    <DragHandle label={t('act.move')} {...billSort.handleProps(b.key)} />
+                  </td>
                   <td>
                     <StatusSelect paid={b.paid} onChange={(paid) => update(b.key, { paid })} />
                   </td>
@@ -631,7 +670,7 @@ function App(): React.JSX.Element {
           </tbody>
           <tfoot>
             <tr>
-              <td colSpan={5} className="right table-total">
+              <td colSpan={6} className="right table-total">
                 <span>{t('total.bills')}</span>
                 <strong>{formatCents(total)}</strong>
               </td>
@@ -645,9 +684,10 @@ function App(): React.JSX.Element {
           </button>
         </form>
       </Section>
-
+    ),
+    extras: (
       <Section
-        id="extras"
+        {...sectionProps('extras')}
         title={
           <>
             {t('section.extras')} <span className="h2-hint">{t('section.extrasHint')}</span>
@@ -657,6 +697,7 @@ function App(): React.JSX.Element {
         <table className="bills bills-extras">
           <thead>
             <tr>
+              <th className="grip-cell"></th>
               <th>{t('col.name')}</th>
               <th className="right">
                 <span className="amount-field">
@@ -678,7 +719,7 @@ function App(): React.JSX.Element {
           <tbody>
             {extras.length === 0 && (
               <tr>
-                <td colSpan={3} className="empty">
+                <td colSpan={4} className="empty">
                   {t('empty.extras')}
                 </td>
               </tr>
@@ -687,7 +728,10 @@ function App(): React.JSX.Element {
               const id = `extra:${x.id}`
               const ed = isEditing(id, x.name)
               return (
-                <tr key={x.id}>
+                <tr key={x.id} ref={extraSort.itemRef(String(x.id))}>
+                  <td className="grip-cell">
+                    <DragHandle label={t('act.move')} {...extraSort.handleProps(String(x.id))} />
+                  </td>
                   <td>
                     <NameCell
                       value={x.name}
@@ -720,7 +764,7 @@ function App(): React.JSX.Element {
           </tbody>
           <tfoot>
             <tr>
-              <td colSpan={3} className="right table-total">
+              <td colSpan={4} className="right table-total">
                 <span>{t('total.extras')}</span>
                 <strong>{formatCents(extrasTotal)}</strong>
               </td>
@@ -731,10 +775,13 @@ function App(): React.JSX.Element {
           {t('btn.addExtra')}
         </button>
       </Section>
-      <Section id="subscriptions" title={t('section.subs')}>
+    ),
+    subscriptions: (
+      <Section {...sectionProps('subscriptions')} title={t('section.subs')}>
         <table className="bills bills-subs">
           <thead>
             <tr>
+              <th className="grip-cell"></th>
               <th>{t('col.name')}</th>
               <th className="right">
                 <span className="amount-field">
@@ -756,7 +803,7 @@ function App(): React.JSX.Element {
           <tbody>
             {subs.length === 0 && (
               <tr>
-                <td colSpan={3} className="empty">
+                <td colSpan={4} className="empty">
                   {t('empty.subs')}
                 </td>
               </tr>
@@ -765,7 +812,10 @@ function App(): React.JSX.Element {
               const id = `sub:${x.id}`
               const ed = isEditing(id, x.name)
               return (
-                <tr key={x.id}>
+                <tr key={x.id} ref={subSort.itemRef(String(x.id))}>
+                  <td className="grip-cell">
+                    <DragHandle label={t('act.move')} {...subSort.handleProps(String(x.id))} />
+                  </td>
                   <td>
                     <NameCell
                       value={x.name}
@@ -798,7 +848,7 @@ function App(): React.JSX.Element {
           </tbody>
           <tfoot>
             <tr>
-              <td colSpan={3} className="right table-total">
+              <td colSpan={4} className="right table-total">
                 <span>{t('total.subs')}</span>
                 <strong>{formatCents(subsTotal)}</strong>
               </td>
@@ -811,11 +861,13 @@ function App(): React.JSX.Element {
           </button>
         </form>
       </Section>
-
-      <Section id="installments" title={t('section.installments')}>
+    ),
+    installments: (
+      <Section {...sectionProps('installments')} title={t('section.installments')}>
         <table className="bills bills-installments">
           <thead>
             <tr>
+              <th className="grip-cell"></th>
               <th>{t('col.name')}</th>
               <th className="right">
                 <span className="amount-field">
@@ -839,7 +891,7 @@ function App(): React.JSX.Element {
           <tbody>
             {installments.length === 0 && (
               <tr>
-                <td colSpan={5} className="empty">
+                <td colSpan={6} className="empty">
                   {t('empty.installments')}
                 </td>
               </tr>
@@ -848,7 +900,10 @@ function App(): React.JSX.Element {
               const id = `inst:${x.id}`
               const ed = isEditing(id, x.name)
               return (
-                <tr key={x.id}>
+                <tr key={x.id} ref={instSort.itemRef(String(x.id))}>
+                  <td className="grip-cell">
+                    <DragHandle label={t('act.move')} {...instSort.handleProps(String(x.id))} />
+                  </td>
                   <td>
                     <NameCell
                       value={x.name}
@@ -912,7 +967,7 @@ function App(): React.JSX.Element {
           </tbody>
           <tfoot>
             <tr>
-              <td colSpan={5} className="right table-total">
+              <td colSpan={6} className="right table-total">
                 <span>{t('total.installmentsMonthly')}</span>
                 <strong>{formatCents(installmentsMonthly)}</strong>
                 <span className="total-gap">{t('total.installments')}</span>
@@ -951,11 +1006,13 @@ function App(): React.JSX.Element {
           </button>
         </form>
       </Section>
-
-      <Section id="loans" title={t('section.loans')}>
+    ),
+    loans: (
+      <Section {...sectionProps('loans')} title={t('section.loans')}>
         <table className="bills bills-loans">
           <thead>
             <tr>
+              <th className="grip-cell"></th>
               <th>{t('col.name')}</th>
               <th className="right">
                 <span className="amount-field">
@@ -990,7 +1047,7 @@ function App(): React.JSX.Element {
           <tbody>
             {loans.length === 0 && (
               <tr>
-                <td colSpan={4} className="empty">
+                <td colSpan={5} className="empty">
                   {t('empty.loans')}
                 </td>
               </tr>
@@ -999,7 +1056,10 @@ function App(): React.JSX.Element {
               const id = `loan:${x.id}`
               const ed = isEditing(id, x.name)
               return (
-                <tr key={x.id}>
+                <tr key={x.id} ref={loanSort.itemRef(String(x.id))}>
+                  <td className="grip-cell">
+                    <DragHandle label={t('act.move')} {...loanSort.handleProps(String(x.id))} />
+                  </td>
                   <td>
                     <NameCell
                       value={x.name}
@@ -1046,7 +1106,7 @@ function App(): React.JSX.Element {
           </tbody>
           <tfoot>
             <tr>
-              <td colSpan={4} className="right table-total">
+              <td colSpan={5} className="right table-total">
                 <span>{t('total.loansMonthly')}</span>
                 <strong>{formatCents(loansMonthlyTotal)}</strong>
                 <span className="total-gap">{t('total.loansDebt')}</span>
@@ -1079,6 +1139,31 @@ function App(): React.JSX.Element {
           </button>
         </form>
       </Section>
+    )
+  }
+
+  return (
+    <div className="app">
+      <div className="titlebar" />
+      <div className="topbar">
+        <ThemeSwitch />
+        <LangSwitch lang={lang} onChange={setLang} />
+      </div>
+      <div className="month-nav">
+        <button onClick={() => setMonth(shiftMonth(month, -1))}>‹</button>
+        <h1>{monthLabel(month, lang)}</h1>
+        <button onClick={() => setMonth(shiftMonth(month, 1))}>›</button>
+      </div>
+
+      {error && (
+        <div className="error" role="alert" onClick={() => setError(null)}>
+          {error}
+        </div>
+      )}
+
+      {sectionOrder.map((id) => (
+        <Fragment key={id}>{sectionViews[id]}</Fragment>
+      ))}
 
       {window.api.exportData && (
         <div className="backup">

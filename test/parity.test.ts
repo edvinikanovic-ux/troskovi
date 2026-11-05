@@ -12,6 +12,7 @@ import {
 } from '../src/renderer/src/data/core'
 import { localPersistence } from '../src/renderer/src/data/localPersistence'
 import { docId, type Item } from '../src/shared/items'
+import { SECTION_IDS, type SectionId } from '../src/shared/order'
 import type { BillsApi } from '../src/shared/types'
 
 db.initDb()
@@ -39,7 +40,10 @@ const sqliteApi: BillsApi = {
   listExtras: async (m) => db.listExtras(m),
   addExtra: async (m) => db.addExtra(m),
   updateExtra: async (i, p) => db.updateExtra(i, p),
-  removeExtra: async (i) => db.removeExtra(i)
+  removeExtra: async (i) => db.removeExtra(i),
+  reorderRows: async (l, m, i) => db.reorderRows(l, m, i),
+  getSectionOrder: async () => db.getSectionOrder(),
+  setSectionOrder: async (o) => db.setSectionOrder(o)
 }
 
 const memory = (): Pick<Storage, 'getItem' | 'setItem'> => {
@@ -138,6 +142,69 @@ async function scenario(api: BillsApi): Promise<Trace> {
   await api.removeLoan(2)
   await rec('loans after remove', api.listLoans('2027-01'))
 
+  // ---- order (rows dragged in one month; rows not shown there keep their place)
+  const names = async (rows: Promise<{ name: string }[]>): Promise<string[]> =>
+    (await rows).map((r) => r.name)
+  const idsOf = async (rows: Promise<{ id: number }[]>): Promise<string[]> =>
+    (await rows).map((r) => String(r.id))
+
+  await api.addBill('Plin')
+  await api.addBill('Telefon')
+  await rec('bills order oct (Voda hidden)', names(api.list('2026-10')))
+  const [internet, plin, telefon] = await keys('2026-10')
+  await api.reorderRows('bills', '2026-10', [telefon, internet, plin])
+  await rec('bills order oct after drag', names(api.list('2026-10')))
+  await rec('bills order nov after drag in oct', names(api.list('2026-11')))
+  const [vodaKey, ...rest] = await keys('2026-11')
+  await api.reorderRows('bills', '2026-11', [...rest, vodaKey])
+  await rec('bills order nov after Voda to the end', names(api.list('2026-11')))
+  await api.addBill('Grijanje')
+  await rec('bills order: a new bill goes to the end', names(api.list('2026-11')))
+
+  const x3 = await api.addExtra('2026-10')
+  const x4 = await api.addExtra('2026-10')
+  await api.updateExtra(x3.id, { name: 'Kino' })
+  await api.updateExtra(x4.id, { name: 'Pokloni' })
+  await api.reorderRows('extras', '2026-10', [String(x4.id), String(x1.id), String(x3.id)])
+  await rec('extras order oct after drag', names(api.listExtras('2026-10')))
+  await rec('extras order nov untouched', api.listExtras('2026-11'))
+  const x5 = await api.addExtra('2026-10')
+  await api.updateExtra(x5.id, { name: 'Taxi' })
+  await rec('extras order: a new one goes to the end', names(api.listExtras('2026-10')))
+
+  await api.addSubscription('HBO', 999)
+  await api.addSubscription('YouTube', 1199)
+  const [spotify, hbo, youtube] = await idsOf(api.listSubscriptions('2026-12'))
+  await api.hideSubscription(Number(hbo), '2026-12')
+  // an id deleted meanwhile (e.g. on another device) is ignored
+  await api.reorderRows('subscriptions', '2026-12', [youtube, '999999', spotify])
+  await rec('subs order dec after drag', names(api.listSubscriptions('2026-12')))
+  await rec('subs order nov (HBO kept its place)', names(api.listSubscriptions('2026-11')))
+  await api.addSubscription('Disney', 0)
+  await rec('subs order: a new one goes to the end', names(api.listSubscriptions('2026-11')))
+
+  await api.addInstallment('Laptop', 10000, 12, 0, '2026-06')
+  await api.addInstallment('Frizider', 8000, 6, 0, '2026-09')
+  await rec('inst order jul', names(api.listInstallments('2026-07')))
+  await api.reorderRows(
+    'installments',
+    '2026-07',
+    (await idsOf(api.listInstallments('2026-07'))).reverse()
+  )
+  await rec('inst order jul after drag', names(api.listInstallments('2026-07')))
+  await rec('inst order oct (not started yet in jul)', names(api.listInstallments('2026-10')))
+
+  await api.addLoan('Kartica', 1000, 500, '2026-10')
+  await api.addLoan('Auto novi', 900000, 30000, '2026-10')
+  await rec('loans order jan (Kartica paid off)', names(api.listLoans('2027-01')))
+  await api.reorderRows('loans', '2027-01', (await idsOf(api.listLoans('2027-01'))).reverse())
+  await rec('loans order jan after drag', names(api.listLoans('2027-01')))
+  await rec('loans order nov after drag in jan', names(api.listLoans('2026-11')))
+
+  await rec('sections default', api.getSectionOrder())
+  await api.setSectionOrder(['loans', 'bills', 'extras', 'subscriptions', 'installments'])
+  await rec('sections after drag', api.getSectionOrder())
+
   return trace
 }
 
@@ -160,6 +227,15 @@ async function main(): Promise<void> {
   await assert.rejects(storeApi.addInstallment('  ', 1, 1, 0, '2026-10'), /Invalid name/)
   await assert.rejects(storeApi.addInstallment('A', 1, 0, 0, '2026-10'), /Invalid count/)
   await assert.rejects(storeApi.addLoan('L', 1.5, 1, '2026-10'), /Invalid amount/)
+  await assert.rejects(storeApi.reorderRows('bills', '2026-10', ['a', 'a']), /Invalid order/)
+  await assert.rejects(storeApi.reorderRows('loans', '2026-10', ['x']), /Invalid order/)
+  await assert.rejects(storeApi.reorderRows('nope' as SectionId, '2026-10', []), /Invalid list/)
+  await assert.rejects(storeApi.reorderRows('bills', '2026-13', []), /Invalid month/)
+  await assert.rejects(storeApi.setSectionOrder(['bills']), /Invalid order/)
+  await assert.rejects(
+    storeApi.setSectionOrder(['bills', 'bills', 'extras', 'subscriptions', 'loans']),
+    /Invalid order/
+  )
   console.log('validation ok')
 
   // ---- export / import round trip
@@ -171,9 +247,43 @@ async function main(): Promise<void> {
     await other.listInstallments('2026-05'),
     await storeApi.listInstallments('2026-05')
   )
+  for (const m of ['2026-10', '2026-11', '2026-12']) {
+    assert.deepEqual(await other.list(m), await storeApi.list(m), `backup bills ${m}`)
+    assert.deepEqual(await other.listExtras(m), await storeApi.listExtras(m), `backup extras ${m}`)
+    assert.deepEqual(
+      await other.listSubscriptions(m),
+      await storeApi.listSubscriptions(m),
+      `backup subs ${m}`
+    )
+  }
+  assert.deepEqual(await other.getSectionOrder(), await storeApi.getSectionOrder())
   await assert.rejects(other.importData('{"nope":1}'), /Invalid backup/)
   await assert.rejects(other.importData('not json'), /Invalid backup/)
   console.log('backup round trip ok')
+
+  // ---- a backup from before rows could be dragged: no sortOrder, no sectionOrder; rows keep the
+  // order by id they had, and new rows go after them
+  const legacy = await createDataApi(localPersistence(memory()))
+  const legacyBackup = JSON.parse(backup)
+  delete legacyBackup.sectionOrder
+  legacyBackup.subs = [
+    { id: 7, name: 'B', amountCents: 0 },
+    { id: 3, name: 'A', amountCents: 0 }
+  ]
+  await legacy.importData(JSON.stringify(legacyBackup))
+  await legacy.addSubscription('C', 0)
+  assert.deepEqual(
+    (await legacy.listSubscriptions('2026-10')).map((x) => x.name),
+    ['A', 'B', 'C']
+  )
+  assert.deepEqual(await legacy.getSectionOrder(), SECTION_IDS)
+  const [a, , c] = await legacy.listSubscriptions('2026-10')
+  await legacy.reorderRows('subscriptions', '2026-10', [String(c.id), String(a.id)])
+  assert.deepEqual(
+    (await legacy.listSubscriptions('2026-10')).map((x) => x.name),
+    ['C', 'B', 'A']
+  )
+  console.log('old backup order ok')
 
   // ---- the real SQLite data moves over: export from SQLite, import into the other layer
   const moved = await createDataApi(localPersistence(memory()))
@@ -183,6 +293,7 @@ async function main(): Promise<void> {
     '2026-01',
     '2026-03',
     '2026-05',
+    '2026-07',
     '2026-10',
     '2026-11',
     '2026-12',
@@ -204,6 +315,7 @@ async function main(): Promise<void> {
     )
     assert.deepEqual(await moved.listLoans(m), await sqliteApi.listLoans(m), `moved loans ${m}`)
   }
+  assert.deepEqual(await moved.getSectionOrder(), await sqliteApi.getSectionOrder())
   console.log('sqlite -> cloud move ok')
 
   await syncTests()
@@ -270,10 +382,22 @@ async function syncTests(): Promise<void> {
   assert.equal(ids.size, 60, 'ids are unique across devices')
   assert.equal((await phone.listExtras('2026-10')).length, 60)
 
+  // the order set on one device is the order on the other
+  await phone.addBill('Voda')
+  const order = (await phone.list('2026-10')).map((b) => b.key).reverse()
+  await phone.reorderRows('bills', '2026-10', order)
+  assert.deepEqual(
+    (await mac.list('2026-10')).map((b) => b.name),
+    ['Voda', 'Struja']
+  )
+  await mac.setSectionOrder(['extras', 'bills', 'subscriptions', 'installments', 'loans'])
+  assert.deepEqual((await phone.getSectionOrder())[0], 'extras')
+  await phone.removeBill(order[0])
+
   // a deletion on one device reaches the other
   await mac.removeBill(bill.key)
   assert.deepEqual(await phone.list('2026-10'), [])
-  assert.equal(cloud.docs.size, 60, 'only the 60 extra expenses are left in the cloud')
+  assert.equal(cloud.docs.size, 61, 'only the 60 extra expenses and the section order are left')
 
   // a brand new device sees everything after its first sync
   const tablet = await createDataApi(cloud.device(), timeBasedId)

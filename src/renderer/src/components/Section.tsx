@@ -1,17 +1,25 @@
 import { useState, type ReactNode } from 'react'
 
 // A titled block that folds away when its heading is clicked. The state is remembered per section.
+// `folded` closes it for a while without forgetting that state (all sections fold while one is dragged).
 export function Section({
   id,
   title,
+  handle,
+  sortRef,
+  folded = false,
   children
 }: {
   id: string
   title: ReactNode
+  handle?: ReactNode
+  sortRef?: (el: HTMLElement | null) => void
+  folded?: boolean
   children: ReactNode
 }): React.JSX.Element {
   const storageKey = `bill-tracker:section:${id}`
   const [open, setOpen] = useState(() => window.localStorage.getItem(storageKey) !== 'closed')
+  const shown = open && !folded
 
   const toggle = (): void => {
     window.localStorage.setItem(storageKey, open ? 'closed' : 'open')
@@ -19,9 +27,10 @@ export function Section({
   }
 
   return (
-    <section className={`section${open ? ' open' : ''}`}>
+    <section ref={sortRef} className={`section${shown ? ' open' : ''}`}>
       <h2>
-        <button type="button" className="section-toggle" aria-expanded={open} onClick={toggle}>
+        {handle}
+        <button type="button" className="section-toggle" aria-expanded={shown} onClick={toggle}>
           <svg
             className="chevron"
             width="14"
@@ -38,7 +47,7 @@ export function Section({
           <span>{title}</span>
         </button>
       </h2>
-      <div className="section-body" inert={!open}>
+      <div className="section-body" inert={!shown}>
         <div className="section-inner">{children}</div>
       </div>
     </section>

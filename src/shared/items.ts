@@ -3,6 +3,9 @@
 // edit different things never overwrite each other. The browser/cloud data layer works on this shape.
 import type { Extra, Subscription } from './types'
 
+// sortOrder is the place set by dragging. Rows saved before it existed have none and sort by id,
+// which was the order before.
+
 export type Item =
   | { kind: 'def'; id: string; name: string; defaultAmountCents: number; sortOrder: number }
   | {
@@ -13,8 +16,15 @@ export type Item =
       forMonth: string | null
       hidden: boolean
     }
-  | { kind: 'extra'; id: string; month: string; name: string; amountCents: number }
-  | { kind: 'sub'; id: string; name: string; amountCents: number }
+  | {
+      kind: 'extra'
+      id: string
+      month: string
+      name: string
+      amountCents: number
+      sortOrder?: number // within its month
+    }
+  | { kind: 'sub'; id: string; name: string; amountCents: number; sortOrder?: number }
   | { kind: 'subhidden'; id: string } // id: `${subId}|${month}`
   | {
       kind: 'inst'
@@ -24,10 +34,19 @@ export type Item =
       totalCount: number
       paidCount: number // paid installments at startMonth
       startMonth: string
+      sortOrder?: number
     }
   | { kind: 'instmonth'; id: string; paidCount: number } // id: `${instId}|${month}`
-  | { kind: 'loan'; id: string; name: string; monthlyCents: number; startMonth: string }
+  | {
+      kind: 'loan'
+      id: string
+      name: string
+      monthlyCents: number
+      startMonth: string
+      sortOrder?: number
+    }
   | { kind: 'loananchor'; id: string; debtCents: number } // id: `${loanId}|${month}`
+  | { kind: 'pref'; id: 'sectionOrder'; value: string[] }
 
 export type Kind = Item['kind']
 
@@ -40,7 +59,8 @@ export const KINDS: Kind[] = [
   'inst',
   'instmonth',
   'loan',
-  'loananchor'
+  'loananchor',
+  'pref'
 ]
 
 export const docId = (kind: Kind, id: string): string => `${kind}:${id}`
@@ -57,8 +77,9 @@ export interface BackupState {
     string,
     { amountCents: number; paid: boolean; forMonth: string | null; hidden: boolean }
   >
-  extras: Extra[]
-  subs: Subscription[]
+  // sortOrder and sectionOrder are missing in files written before rows could be reordered
+  extras: (Extra & { sortOrder?: number })[]
+  subs: (Subscription & { sortOrder?: number })[]
   subHidden: string[]
   installments: {
     id: number
@@ -67,16 +88,26 @@ export interface BackupState {
     totalCount: number
     paidCount: number
     startMonth: string
+    sortOrder?: number
   }[]
   installmentMonths: Record<string, number>
-  loans: { id: number; name: string; monthlyCents: number; startMonth: string }[]
+  loans: {
+    id: number
+    name: string
+    monthlyCents: number
+    startMonth: string
+    sortOrder?: number
+  }[]
   loanAnchors: Record<string, number>
+  sectionOrder?: string[]
 }
 
 const isObject = (x: unknown): x is Record<string, unknown> =>
   typeof x === 'object' && x !== null && !Array.isArray(x)
 const isNum = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x)
 const isStr = (x: unknown): x is string => typeof x === 'string'
+const hasOrder = (x: Record<string, unknown>): boolean =>
+  x.sortOrder === undefined || isNum(x.sortOrder)
 
 export function isBackupState(x: unknown): x is BackupState {
   if (!isObject(x) || x.version !== 1) return false
@@ -84,20 +115,30 @@ export function isBackupState(x: unknown): x is BackupState {
   if (!arrays.every((k) => Array.isArray(x[k]))) return false
   const maps = ['payments', 'installmentMonths', 'loanAnchors']
   if (!maps.every((k) => isObject(x[k]))) return false
+  if (
+    x.sectionOrder !== undefined &&
+    !(Array.isArray(x.sectionOrder) && x.sectionOrder.every(isStr))
+  ) {
+    return false
+  }
   const s = x as unknown as BackupState
   return (
     s.defs.every((d) => isObject(d) && isStr(d.key) && isStr(d.name) && isNum(d.sortOrder)) &&
     Object.values(s.payments).every(
       (p) => isObject(p) && isNum(p.amountCents) && typeof p.paid === 'boolean'
     ) &&
-    s.extras.every((e) => isObject(e) && isNum(e.id) && isStr(e.month) && isNum(e.amountCents)) &&
-    s.subs.every((e) => isObject(e) && isNum(e.id) && isStr(e.name) && isNum(e.amountCents)) &&
+    s.extras.every(
+      (e) => isObject(e) && isNum(e.id) && isStr(e.month) && isNum(e.amountCents) && hasOrder(e)
+    ) &&
+    s.subs.every(
+      (e) => isObject(e) && isNum(e.id) && isStr(e.name) && isNum(e.amountCents) && hasOrder(e)
+    ) &&
     s.subHidden.every(isStr) &&
     s.installments.every(
-      (e) => isObject(e) && isNum(e.id) && isStr(e.startMonth) && isNum(e.totalCount)
+      (e) => isObject(e) && isNum(e.id) && isStr(e.startMonth) && isNum(e.totalCount) && hasOrder(e)
     ) &&
     Object.values(s.installmentMonths).every(isNum) &&
-    s.loans.every((e) => isObject(e) && isNum(e.id) && isStr(e.startMonth)) &&
+    s.loans.every((e) => isObject(e) && isNum(e.id) && isStr(e.startMonth) && hasOrder(e)) &&
     Object.values(s.loanAnchors).every(isNum)
   )
 }
@@ -129,11 +170,18 @@ export function stateToItems(s: BackupState): Item[] {
       id: String(e.id),
       month: e.month,
       name: e.name,
-      amountCents: e.amountCents
+      amountCents: e.amountCents,
+      sortOrder: e.sortOrder
     })
   }
   for (const e of s.subs) {
-    items.push({ kind: 'sub', id: String(e.id), name: e.name, amountCents: e.amountCents })
+    items.push({
+      kind: 'sub',
+      id: String(e.id),
+      name: e.name,
+      amountCents: e.amountCents,
+      sortOrder: e.sortOrder
+    })
   }
   for (const id of s.subHidden) items.push({ kind: 'subhidden', id })
   for (const e of s.installments) {
@@ -144,7 +192,8 @@ export function stateToItems(s: BackupState): Item[] {
       installmentCents: e.installmentCents,
       totalCount: e.totalCount,
       paidCount: e.paidCount,
-      startMonth: e.startMonth
+      startMonth: e.startMonth,
+      sortOrder: e.sortOrder
     })
   }
   for (const [id, paidCount] of Object.entries(s.installmentMonths)) {
@@ -156,12 +205,14 @@ export function stateToItems(s: BackupState): Item[] {
       id: String(e.id),
       name: e.name,
       monthlyCents: e.monthlyCents,
-      startMonth: e.startMonth
+      startMonth: e.startMonth,
+      sortOrder: e.sortOrder
     })
   }
   for (const [id, debtCents] of Object.entries(s.loanAnchors)) {
     items.push({ kind: 'loananchor', id, debtCents })
   }
+  if (s.sectionOrder) items.push({ kind: 'pref', id: 'sectionOrder', value: s.sectionOrder })
   return items
 }
 
@@ -201,11 +252,17 @@ export function itemsToState(items: Item[]): BackupState {
           id: Number(i.id),
           month: i.month,
           name: i.name,
-          amountCents: i.amountCents
+          amountCents: i.amountCents,
+          sortOrder: i.sortOrder
         })
         break
       case 'sub':
-        s.subs.push({ id: Number(i.id), name: i.name, amountCents: i.amountCents })
+        s.subs.push({
+          id: Number(i.id),
+          name: i.name,
+          amountCents: i.amountCents,
+          sortOrder: i.sortOrder
+        })
         break
       case 'subhidden':
         s.subHidden.push(i.id)
@@ -217,7 +274,8 @@ export function itemsToState(items: Item[]): BackupState {
           installmentCents: i.installmentCents,
           totalCount: i.totalCount,
           paidCount: i.paidCount,
-          startMonth: i.startMonth
+          startMonth: i.startMonth,
+          sortOrder: i.sortOrder
         })
         break
       case 'instmonth':
@@ -228,11 +286,15 @@ export function itemsToState(items: Item[]): BackupState {
           id: Number(i.id),
           name: i.name,
           monthlyCents: i.monthlyCents,
-          startMonth: i.startMonth
+          startMonth: i.startMonth,
+          sortOrder: i.sortOrder
         })
         break
       case 'loananchor':
         s.loanAnchors[i.id] = i.debtCents
+        break
+      case 'pref':
+        s.sectionOrder = i.value
         break
     }
   }

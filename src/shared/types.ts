@@ -1,3 +1,5 @@
+import type { SectionId } from './order'
+
 export interface MonthlyBill {
   key: string // id from recurringBills.ts
   name: string
@@ -100,6 +102,11 @@ export interface BillsApi {
   addExtra: (month: string) => Promise<Extra>
   updateExtra: (id: number, patch: ExtraPatch) => Promise<void>
   removeExtra: (id: number) => Promise<void>
+  // Drag and drop: `ids` are the rows shown in `month` in their new order (bill keys, or the ids of
+  // the other lists as text). Extra expenses are ordered per month, the other lists for all months.
+  reorderRows: (list: SectionId, month: string, ids: string[]) => Promise<void>
+  getSectionOrder: () => Promise<SectionId[]>
+  setSectionOrder: (order: SectionId[]) => Promise<void>
   // Backup: the Electron app (SQLite) can export; the browser/cloud data layer can export and import.
   exportData?: () => Promise<string>
   importData?: (json: string) => Promise<void>

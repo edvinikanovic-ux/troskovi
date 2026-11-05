@@ -3,6 +3,7 @@ import { app } from 'electron'
 import { randomUUID } from 'crypto'
 import { join } from 'path'
 import type { BackupState } from '../shared/items'
+import { moveRows, sectionOrder, type SectionId } from '../shared/order'
 import { RECURRING_BILLS } from '../shared/recurringBills'
 import type {
   BillPatch,
@@ -94,6 +95,10 @@ export function initDb(): void {
       name         TEXT    NOT NULL,
       amount_cents INTEGER NOT NULL DEFAULT 0 CHECK (amount_cents >= 0)
     );
+    CREATE TABLE IF NOT EXISTS prefs (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL -- JSON
+    );
   `)
   db.exec(LOANS_DDL)
   migrateLoansToOptionalTerm()
@@ -111,7 +116,31 @@ export function initDb(): void {
   if (!cols.some((c) => c.name === 'hidden')) {
     db.exec('ALTER TABLE payments ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0')
   }
+  addSortOrder()
 }
+
+const ROW_TABLES = {
+  extras: 'extras',
+  subscriptions: 'subscriptions',
+  installments: 'installments',
+  loans: 'loans'
+} as const
+
+// The rows of these lists were listed by id before they could be dragged; that stays their order.
+function addSortOrder(): void {
+  for (const table of Object.values(ROW_TABLES)) {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]
+    if (cols.some((c) => c.name === 'sort_order')) continue
+    db.transaction(() => {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0`)
+      db.exec(`UPDATE ${table} SET sort_order = id`)
+    })()
+  }
+}
+
+// a new row goes to the end of its list
+const nextOrder = (table: string, where = ''): string =>
+  `(SELECT COALESCE(MAX(sort_order), -1) + 1 FROM ${table} ${where})`
 
 // Loans were first created with a mandatory term. Rebuild the tables so period and remaining
 // months can be empty (SQLite cannot drop a NOT NULL constraint in place).
@@ -246,6 +275,7 @@ interface ExtraRow {
   month: string
   name: string
   amount_cents: number
+  sort_order: number
 }
 
 const toExtra = (r: ExtraRow): Extra => ({
@@ -257,13 +287,17 @@ const toExtra = (r: ExtraRow): Extra => ({
 
 export function listExtras(month: string): Extra[] {
   const rows = db
-    .prepare('SELECT * FROM extras WHERE month = ? ORDER BY id')
+    .prepare('SELECT * FROM extras WHERE month = ? ORDER BY sort_order, id')
     .all(month) as ExtraRow[]
   return rows.map(toExtra)
 }
 
 export function addExtra(month: string): Extra {
-  const info = db.prepare('INSERT INTO extras (month) VALUES (?)').run(month)
+  const info = db
+    .prepare(
+      `INSERT INTO extras (month, sort_order) VALUES (?, ${nextOrder('extras', 'WHERE month = ?')})`
+    )
+    .run(month, month)
   const row = db.prepare('SELECT * FROM extras WHERE id = ?').get(info.lastInsertRowid) as ExtraRow
   return toExtra(row)
 }
@@ -287,6 +321,7 @@ interface SubscriptionRow {
   id: number
   name: string
   amount_cents: number
+  sort_order: number
 }
 
 export function listSubscriptions(month: string): Subscription[] {
@@ -294,14 +329,17 @@ export function listSubscriptions(month: string): Subscription[] {
     .prepare(
       `SELECT * FROM subscriptions
        WHERE id NOT IN (SELECT sub_id FROM subscription_hidden WHERE month = ?)
-       ORDER BY id`
+       ORDER BY sort_order, id`
     )
     .all(month) as SubscriptionRow[]
   return rows.map((r) => ({ id: r.id, name: r.name, amountCents: r.amount_cents }))
 }
 
 export function addSubscription(name: string, amountCents: number): void {
-  db.prepare('INSERT INTO subscriptions (name, amount_cents) VALUES (?, ?)').run(name, amountCents)
+  db.prepare(
+    `INSERT INTO subscriptions (name, amount_cents, sort_order)
+     VALUES (?, ?, ${nextOrder('subscriptions')})`
+  ).run(name, amountCents)
 }
 
 export function updateSubscription(id: number, patch: SubscriptionPatch): void {
@@ -341,6 +379,7 @@ interface InstallmentRow {
   total_count: number
   paid_count: number // paid installments at start_month
   start_month: string // YYYY-MM the counter was last anchored
+  sort_order: number
 }
 
 const monthsBetween = (from: string, to: string): number => {
@@ -360,7 +399,7 @@ const currentMonth = (): string => {
 // month on, so earlier months are not touched.
 export function listInstallments(month: string): Installment[] {
   const rows = db
-    .prepare('SELECT * FROM installments WHERE start_month <= ? ORDER BY id')
+    .prepare('SELECT * FROM installments WHERE start_month <= ? ORDER BY sort_order, id')
     .all(month) as InstallmentRow[]
   const latestEntry = db.prepare(
     `SELECT month, paid_count FROM installment_months
@@ -389,7 +428,8 @@ export function addInstallment(
   startMonth: string
 ): void {
   db.prepare(
-    'INSERT INTO installments (name, installment_cents, total_count, paid_count, start_month) VALUES (?, ?, ?, ?, ?)'
+    `INSERT INTO installments (name, installment_cents, total_count, paid_count, start_month, sort_order)
+     VALUES (?, ?, ?, ?, ?, ${nextOrder('installments')})`
   ).run(
     name,
     installmentCents,
@@ -437,6 +477,7 @@ interface LoanRow {
   monthly_cents: number
   period_months: number | null // legacy, unused
   start_month: string
+  sort_order: number
 }
 
 interface AnchorRow {
@@ -473,7 +514,7 @@ const previousMonth = (month: string): string => {
 // A loan is listed from the month it was entered. The month its debt reaches 0 is still listed
 // (shown as paid off); the months after that no longer carry it.
 export function listLoans(month: string): Loan[] {
-  const rows = db.prepare('SELECT * FROM loans ORDER BY id').all() as LoanRow[]
+  const rows = db.prepare('SELECT * FROM loans ORDER BY sort_order, id').all() as LoanRow[]
   const before = previousMonth(month)
   return rows.flatMap((r) => {
     const loan = loanAt(r, month)
@@ -491,7 +532,10 @@ export function addLoan(
 ): void {
   db.transaction(() => {
     const info = db
-      .prepare('INSERT INTO loans (name, monthly_cents, start_month) VALUES (?, ?, ?)')
+      .prepare(
+        `INSERT INTO loans (name, monthly_cents, start_month, sort_order)
+         VALUES (?, ?, ?, ${nextOrder('loans')})`
+      )
       .run(name, monthlyCents, startMonth)
     db.prepare('INSERT INTO loan_anchors (loan_id, month, debt_cents) VALUES (?, ?, ?)').run(
       info.lastInsertRowid,
@@ -528,6 +572,58 @@ export function removeLoan(id: number): void {
   })()
 }
 
+// Renumbers the whole list in its new order. Rows not shown in `month` keep their place (see moveRows);
+// extra expenses are ordered within their month only.
+export function reorderRows(list: SectionId, month: string, ids: string[]): void {
+  db.transaction(() => {
+    if (list === 'bills') {
+      const keys = db.prepare('SELECT key FROM bill_defs ORDER BY sort_order, rowid').all() as {
+        key: string
+      }[]
+      const update = db.prepare('UPDATE bill_defs SET sort_order = ? WHERE key = ?')
+      moveRows(
+        keys.map((r) => r.key),
+        ids
+      ).forEach((key, i) => update.run(i, key))
+      return
+    }
+    const table = ROW_TABLES[list]
+    const rows = (
+      list === 'extras'
+        ? db.prepare('SELECT id FROM extras WHERE month = ? ORDER BY sort_order, id').all(month)
+        : db.prepare(`SELECT id FROM ${table} ORDER BY sort_order, id`).all()
+    ) as { id: number }[]
+    const update = db.prepare(`UPDATE ${table} SET sort_order = ? WHERE id = ?`)
+    moveRows(
+      rows.map((r) => String(r.id)),
+      ids
+    ).forEach((id, i) => update.run(i, Number(id)))
+  })()
+}
+
+function savedSectionOrder(): string[] | undefined {
+  const row = db.prepare("SELECT value FROM prefs WHERE key = 'sectionOrder'").get() as
+    { value: string } | undefined
+  if (!row) return undefined
+  try {
+    const parsed: unknown = JSON.parse(row.value)
+    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : []
+  } catch {
+    return undefined
+  }
+}
+
+export function getSectionOrder(): SectionId[] {
+  return sectionOrder(savedSectionOrder())
+}
+
+export function setSectionOrder(order: SectionId[]): void {
+  db.prepare(
+    `INSERT INTO prefs (key, value) VALUES ('sectionOrder', ?)
+     ON CONFLICT (key) DO UPDATE SET value = excluded.value`
+  ).run(JSON.stringify(order))
+}
+
 // Everything in the app's backup format, so the data can be imported into the browser/cloud version.
 export function exportState(): BackupState {
   const rows = <T>(sql: string): T[] => db.prepare(sql).all() as T[]
@@ -542,11 +638,15 @@ export function exportState(): BackupState {
       sortOrder: r.sort_order
     })),
     payments: {},
-    extras: listAllExtras(),
+    extras: rows<ExtraRow>('SELECT * FROM extras ORDER BY id').map((r) => ({
+      ...toExtra(r),
+      sortOrder: r.sort_order
+    })),
     subs: rows<SubscriptionRow>('SELECT * FROM subscriptions ORDER BY id').map((r) => ({
       id: r.id,
       name: r.name,
-      amountCents: r.amount_cents
+      amountCents: r.amount_cents,
+      sortOrder: r.sort_order
     })),
     subHidden: rows<{ sub_id: number; month: string }>(
       'SELECT sub_id, month FROM subscription_hidden'
@@ -557,16 +657,19 @@ export function exportState(): BackupState {
       installmentCents: r.installment_cents,
       totalCount: r.total_count,
       paidCount: r.paid_count,
-      startMonth: r.start_month
+      startMonth: r.start_month,
+      sortOrder: r.sort_order
     })),
     installmentMonths: {},
     loans: rows<LoanRow>('SELECT * FROM loans ORDER BY id').map((r) => ({
       id: r.id,
       name: r.name,
       monthlyCents: r.monthly_cents,
-      startMonth: r.start_month
+      startMonth: r.start_month,
+      sortOrder: r.sort_order
     })),
-    loanAnchors: {}
+    loanAnchors: {},
+    sectionOrder: savedSectionOrder()
   }
   for (const r of rows<PaymentRow & { bill_key: string; month: string }>(
     'SELECT bill_key, month, amount_cents, paid, for_month, hidden FROM payments'
@@ -589,8 +692,4 @@ export function exportState(): BackupState {
     state.loanAnchors[`${r.loan_id}|${r.month}`] = r.debt_cents
   }
   return state
-}
-
-function listAllExtras(): Extra[] {
-  return (db.prepare('SELECT * FROM extras ORDER BY id').all() as ExtraRow[]).map(toExtra)
 }
