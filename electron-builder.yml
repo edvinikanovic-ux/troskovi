@@ -1,4 +1,5 @@
-appId: com.electron.app
+# unique, so macOS does not mix the app up with other Electron apps (the default id is shared)
+appId: com.edvinikanovic.troskovi
 # Keep the name ASCII (no "š"): with it in the bundle name the app crashes at startup, because
 # Electron cannot find its helper apps.
 productName: Troskovi

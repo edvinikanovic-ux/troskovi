@@ -1,6 +1,6 @@
 #!/bin/bash
 # Runs test/parity.test.ts: the same scenario against SQLite (src/main/db.ts) and the browser data
-# layer (src/renderer/src/web/store.ts). better-sqlite3 is built for Electron, so it runs under
+# layer (src/renderer/src/data/core.ts). better-sqlite3 is built for Electron, so it runs under
 # Electron's Node.
 set -euo pipefail
 cd "$(dirname "$0")/.."
